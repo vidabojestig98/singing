@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound Alike Singer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%235b5bd6'/%3E%3Cpath d='M32 12a8 8 0 0 0-8 8v12a8 8 0 0 0 16 0V20a8 8 0 0 0-8-8zm-14 20a14 14 0 0 0 28 0h-4a10 10 0 0 1-20 0z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <h1><span class="logo" aria-hidden="true"></span>Sound Alike Singer</h1>
+    <nav role="tablist">
+      <button role="tab" id="tab-find" class="active" data-view="find">Find my match</button>
+      <button role="tab" id="tab-db" data-view="db">Voices database</button>
+      <button role="tab" id="tab-crawl" data-view="crawl">Crawler</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <p id="dbline" class="muted dbline" aria-live="polite"></p>
+
+  <!-- ===================== FIND ===================== -->
+  <section id="view-find" class="view">
+    <div class="card hero">
+      <h2>Sing, and find who you sound like</h2>
+      <p class="muted">Record yourself singing, or upload an audio or video file. We find the singing in it and compare your
+        voice with every singer in the database.</p>
+
+      <div class="inputs">
+        <div class="panel" id="rec-panel">
+          <h3>Record</h3>
+          <div class="meter" aria-hidden="true"><div id="meter-fill"></div></div>
+          <div class="rec-row">
+            <button id="rec-btn" class="btn primary">● Start recording</button>
+            <span id="rec-time" class="mono">0:00</span>
+          </div>
+          <p class="hint">Sing 10–30 seconds, a cappella works best. Noise suppression is turned off so your voice isn't altered.</p>
+          <audio id="rec-audio" controls hidden></audio>
+        </div>
+
+        <div class="panel" id="drop">
+          <h3>Upload</h3>
+          <label class="drop" for="file-in">
+            <input id="file-in" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.ogg,.opus,.flac,.mp4,.webm,.mov,.mkv" hidden>
+            <strong>Choose a file</strong> or drop it here
+            <span class="muted">audio or video, any length (first 3 minutes are analysed)</span>
+          </label>
+          <p id="file-name" class="muted"></p>
+        </div>
+      </div>
+
+      <div class="rec-row">
+        <button id="go-btn" class="btn primary big" disabled>Find my sound-alike</button>
+        <span id="status" class="muted" role="status" aria-live="polite"></span>
+      </div>
+    </div>
+
+    <div id="results" hidden></div>
+  </section>
+
+  <!-- ===================== DATABASE ===================== -->
+  <section id="view-db" class="view" hidden>
+    <div class="card">
+      <h2>Singing voices database</h2>
+      <p class="muted">Every voice found in the crawled videos, with its singing parts saved as separate video clips.</p>
+      <div id="voices" class="grid"></div>
+      <div class="rec-row"><button id="more-voices" class="btn" hidden>Load more</button></div>
+    </div>
+    <div class="card">
+      <h2>Sources</h2>
+      <div class="rec-row">
+        <label class="muted">Show <select id="src-filter">
+          <option value="">all</option><option>done</option><option>no_singing</option><option>queued</option>
+          <option>working</option><option>failed</option></select></label>
+      </div>
+      <div class="scroll"><table id="sources"><thead><tr>
+        <th>Title</th><th>Source</th><th>Licence</th><th>Status</th><th>Voices</th><th>Clips</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ===================== CRAWLER ===================== -->
+  <section id="view-crawl" class="view" hidden>
+    <div class="card">
+      <h2>Crawler</h2>
+      <p class="muted">Searches open-licence sources page by page (no limit on videos or clips), finds the singing in each, and saves each
+        voice's parts as clips. It resumes where it stopped.</p>
+      <div class="rec-row wrapx">
+        <label><input type="checkbox" id="src-zenodo" checked> Zenodo</label>
+        <label><input type="checkbox" id="src-commons" checked> Wikimedia Commons</label>
+        <label>Workers <input type="number" id="workers" value="2" min="1" max="16" style="width:4.5em"></label>
+        <button id="crawl-toggle" class="btn primary">Start crawling</button>
+      </div>
+      <dl class="kv" id="crawl-kv"></dl>
+      <h3>Activity</h3>
+      <pre id="events" class="log" aria-live="polite"></pre>
+    </div>
+    <div class="card">
+      <h2>Add media you have the rights to</h2>
+      <div class="rec-row wrapx">
+        <input id="url-in" type="url" placeholder="https://example.org/direct/video.mp4" class="grow">
+        <button id="url-add" class="btn">Add URL</button>
+      </div>
+      <div class="rec-row wrapx">
+        <label class="btn" for="ingest-in">Upload a video/audio to the database</label>
+        <input id="ingest-in" type="file" accept="audio/*,video/*" hidden>
+        <span id="ingest-msg" class="muted"></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap muted small">
+  Voice similarity is a statistical estimate of how alike two voices <em>sound</em>, not proof of identity.
+  Clips keep their original licence and attribution.
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

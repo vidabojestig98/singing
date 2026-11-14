@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# large / third-party artefacts are fetched by scripts, never committed
+models/
+data/
+*.onnx
+.env
