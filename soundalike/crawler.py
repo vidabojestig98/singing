@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .pipeline import Engine
-from .sources import Source
+from .sources import SkipSource, Source
 
 log = logging.getLogger("soundalike.crawler")
 
@@ -169,11 +169,16 @@ class Crawler:
                 src.download(row, tmp)
                 path = tmp
             res = self.engine.ingest(path, sid)
-            self.db.finish_source(sid, res["status"], None, n_segments=res["segments"], n_clips=res["clips"],
+            self.db.finish_source(sid, res["status"], res.get("error"), n_segments=res["segments"], n_clips=res["clips"],
                                   n_voices=res["voices"])
             self.counters[res["status"]] += 1
             self._event(f"{res['status']}: {title[:70]} — {res['clips']} clips / {res['voices']} voices ({res['seconds']}s)")
             return res
+        except SkipSource as e:
+            self.db.finish_source(sid, "skipped", str(e)[:500])
+            self.counters["skipped"] += 1
+            self._event(f"skipped: {title[:60]} — {e}")
+            return {"status": "skipped", "error": str(e)}
         except Exception as e:
             log.debug(traceback.format_exc())
             self.db.finish_source(sid, "failed", f"{type(e).__name__}: {e}"[:500])

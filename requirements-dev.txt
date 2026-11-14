@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8.0
+httpx2>=2.0        # needed by Starlette's TestClient
+pyarrow>=15        # only for scripts/fetch_test_data.py / fetch_more_data.py

@@ -29,7 +29,7 @@ class Params:
     hop_s: float = 1.5
     # cosine similarity (CAM++ embeddings) thresholds; calibrated with scripts/calibrate.py on VocalSet
     cluster_sim: float = 0.32     # windows of one video at least this similar (avg-linkage) = same voice
-    voice_sim: float = 0.65       # a video's voice joins an existing DB voice at/above this similarity (~2% false merges)
+    voice_sim: float = 0.80       # a video's voice joins an existing DB voice only at/above this (mean of its 2 closest clips): precision over fragmentation, see scripts/sim_voice_assignment.py
     min_clip: float = 3.0
     max_clip: float = 30.0
     sing_on: float = 0.55
@@ -183,6 +183,9 @@ class Engine:
     # ---- ingestion ---------------------------------------------------------------------------
     def ingest(self, path: str | Path, source_id: int) -> dict:
         t0 = time.time()
+        if not probe(path).has_audio:
+            return {"status": "skipped", "error": "no audio track", "segments": 0, "clips": 0, "voices": 0,
+                    "seconds": round(time.time() - t0, 1)}
         an = self.analyze(path)
         if not an.runs:
             return {"status": "no_singing", "segments": len(an.segments), "clips": 0, "voices": 0,

@@ -29,3 +29,10 @@ def test_video(tmp_path_factory):
     from make_test_video import build
     path, timeline = build(str(tmp_path_factory.mktemp("vid") / "video1"))
     return path, timeline
+
+
+def vocalset(singer: str, song: str, technique: str = "straight") -> str:
+    """A SUNG VocalSet excerpt. (Beware: sorted(glob(...))[0] picks the 'spoken' technique - singers talking the lyrics.)"""
+    hits = list((DATA / "vocalset" / singer / "excerpts" / technique).glob(f"*{song}*.wav"))
+    assert hits, (singer, song, technique)
+    return str(hits[0])

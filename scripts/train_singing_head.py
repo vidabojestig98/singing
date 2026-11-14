@@ -122,6 +122,27 @@ class Pools:
                dict(sing=self.sing, spoken=self.spoken, speech=self.speech, music=self.music, songs=self.songs).items()}, flush=True)
 
 
+EXTRA_DB = None
+
+
+def load_extra(db_dir: str):
+    """Hard examples mined from a live crawl: clips cut from real sources, labelled by scripts/hard_negatives.json.
+    Returns {"train": [(wave, label)], "test": [...]}; the split is by SOURCE id parity so held-out sources are unseen."""
+    import json
+    import sqlite3
+    rules = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "hard_negatives.json")))["rules"]
+    con = sqlite3.connect(os.path.join(db_dir, "sound.db")); con.row_factory = sqlite3.Row
+    out = {"train": [], "test": []}
+    for r in con.execute("SELECT clips.id cid, clips.source_id sid, sources.title t FROM clips JOIN sources ON sources.id=clips.source_id WHERE deleted=0"):
+        lab = next((x["label"] for x in rules if x["match"] in r["t"]), None)
+        if lab is None:
+            continue
+        f = f"{db_dir}/clips/{r['cid'] // 1000:05d}/{r['cid']}.mp4"
+        out["test" if r["sid"] % 2 else "train"].append((load_audio(f), lab))
+    print("extra (mined) clips:", {k: len(v) for k, v in out.items()}, flush=True)
+    return out
+
+
 def maybe_reverb(x, p=0.35):
     return reverb(x, rng.uniform(0.2, 1.0)) if rng.random() < p else x
 
@@ -230,10 +251,12 @@ USE_MUSDB = False
 
 
 def main():
-    global USE_MUSDB
+    global USE_MUSDB, EXTRA_DB
     ap = argparse.ArgumentParser()
     ap.add_argument("--musdb", action="store_true", help="also train on real songs from data/testdata/musdb_train")
-    USE_MUSDB = ap.parse_args().musdb
+    ap.add_argument("--extra-db", help="a crawl database whose clips are mined as hard examples (see hard_negatives.json)")
+    a = ap.parse_args()
+    USE_MUSDB, EXTRA_DB = a.musdb, a.extra_db
     t0 = time.time()
     yam = Yamnet("models/yamnet.onnx", "models/yamnet_class_map.csv")
     pools = Pools()
@@ -248,9 +271,21 @@ def main():
     Xtr, ytr = embed_all(yam, Xtr_w, ytr_w)
     Xte, yte = embed_all(yam, Xte_w, yte_w)
     ytr, yte = np.asarray(ytr), np.asarray(yte)
+    if EXTRA_DB:
+        ex = load_extra(EXTRA_DB)
+        for split in ("train", "test"):
+            if not ex[split]:
+                continue
+            Xe, ye = embed_all(yam, [w for w, _ in ex[split]], [l for _, l in ex[split]])
+            rep = 4 if split == "train" else 1          # hard examples are few: replicate for training
+            if split == "train":
+                Xtr, ytr = np.concatenate([Xtr] + [Xe] * rep), np.concatenate([ytr] + [ye] * rep)
+            else:
+                Xte, yte = np.concatenate([Xte, Xe]), np.concatenate([yte, ye])
+                Xex_te, yex_te = Xe, ye
     print(f"features: train {Xtr.shape}, test {Xte.shape}  ({time.time()-t0:.0f}s)", flush=True)
     best = None
-    for C in (0.01, 0.03, 0.1):
+    for C in (0.01,):
         h = fit(Xtr, ytr, C)
         acc = np.mean(h.proba(Xte).argmax(1) == yte)
         print(f"C={C}: held-out frame accuracy {acc:.3f}", flush=True)
@@ -259,6 +294,8 @@ def main():
     acc, C, h = best
     print(f"best C={C}; held-out detail (singers/speakers/tracks unseen in training):")
     report("held-out", h, Xte, yte)
+    if EXTRA_DB and "Xex_te" in globals():
+        report("mined held-out sources", h, Xex_te, yex_te)
     # final model re-fit on train+test pools
     head = fit(np.concatenate([Xtr, Xte]), np.concatenate([ytr, yte]), C)
     out = "soundalike/assets/singing_head.npz"

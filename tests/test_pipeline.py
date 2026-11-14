@@ -3,7 +3,7 @@ import glob
 
 import numpy as np
 
-from conftest import DATA, needs_data
+from conftest import DATA, needs_data, vocalset
 
 
 def overlap(a, b):
@@ -60,12 +60,12 @@ def test_recording_matches_the_right_singer(engine, tmp_path):
     eng = Engine(data_dir=tmp_path / "db")
     for s in singers:
         for song in ("caro", "dona"):
-            f = sorted(glob.glob(str(DATA / "vocalset" / s / "excerpts" / "*" / f"*{song}*.wav")))[0]
+            f = vocalset(s, song, "vibrato" if song == "caro" else "straight")
             sid = eng.db.add_source("upload", f"upload:{f}", url=f, title=f"{s} {song}")
             assert eng.ingest(f, sid)["clips"] >= 1
     hits = 0
     for s in singers:
-        q = sorted(glob.glob(str(DATA / "vocalset" / s / "excerpts" / "*" / "*row*.wav")))[0]
+        q = vocalset(s, "row", "straight")
         res = eng.match(q)
         top = res["results"][0]["matches"][0]
         titles = {c["title"] for c in top["clips"]}
@@ -84,3 +84,14 @@ def test_query_without_singing_falls_back_and_short_audio_rejected(engine, tmp_p
     encode_wav(np.zeros(8000, np.float32) + 0.01, tmp_path / "short.wav")
     with pytest.raises(ValueError):
         engine.analyze_query(tmp_path / "short.wav")
+
+
+@needs_data
+def test_silent_video_is_skipped_not_failed(engine, tmp_path):
+    import subprocess
+    f = tmp_path / "silent.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=3",
+                    "-pix_fmt", "yuv420p", str(f)], check=True)
+    sid = engine.db.add_source("upload", "upload:silent-test", url=str(f), title="silent")
+    res = engine.ingest(f, sid)
+    assert res["status"] == "skipped" and res["error"] == "no audio track"

@@ -1,0 +1,12 @@
+{
+  "_doc": "Labels for audio mined from a live crawl (data/live_db) that the detector got wrong or right. Matched by substring of the source title. 0=singing 1=speech 2=music 3=other. Sources are split train/test by source id parity, so held-out sources are never trained on.",
+  "rules": [
+    {"match": "Menezes",                  "label": 0, "why": "live concert vocals with a band"},
+    {"match": "diphonique",               "label": 0, "why": "Khoomii throat singing"},
+    {"match": "IPHIGENIA-Singer",         "label": 0, "why": "singer in a reverberant theatre"},
+    {"match": "Metatone",                 "label": 2, "why": "iPad instrument ensemble (was a false positive)"},
+    {"match": "Symphononia",              "label": 2, "why": "instrumental performance (was a false positive)"},
+    {"match": "MAMMALS",                  "label": 3, "why": "bush-baby / mammal calls (was a false positive)"},
+    {"match": "stridulating",             "label": 3, "why": "insect stridulation (was a false positive)"}
+  ]
+}

@@ -1,4 +1,4 @@
-from .base import MediaItem, Page, Source  # noqa: F401
+from .base import MediaItem, Page, SkipSource, Source  # noqa: F401
 from .commons import CommonsSource  # noqa: F401
 from .local import FolderSource, UploadSource, UrlSource  # noqa: F401
 from .zenodo import ZenodoSource  # noqa: F401

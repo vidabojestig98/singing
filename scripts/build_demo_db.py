@@ -18,7 +18,7 @@ eng = Engine(data_dir=a.root)
 cr = Crawler(eng, default_sources(zenodo=False, commons=False), workers=2, discover=False)
 files = []
 for song in a.songs.split(","):
-    files += sorted(glob.glob(f"data/testdata/vocalset/*/excerpts/*/*{song}*.wav"))
+    files += sorted(f for f in glob.glob(f"data/testdata/vocalset/*/excerpts/*/*{song}*.wav") if "/spoken/" not in f)
 for f in files:
     parts = f.split("/")
     eng.db.add_source("upload", f"upload:{f}", url=os.path.abspath(f), title=f"VocalSet {parts[-4]} – {parts[-1][:-4]}",

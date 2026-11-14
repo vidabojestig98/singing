@@ -182,9 +182,9 @@ function matchCard(m, rank) {
     el("div", {},
       el("div", { class: "rank", text: rank === 1 ? "Closest match" : `#${rank}` }),
       el("h3", { text: m.label || `Voice ${m.voice_id}` }),
-      el("div", { class: "pct", text: `${m.percent}%` }),
+      el("div", { class: "pct", text: `${m.percent}%`, title: "Match score: a relative guide, best read by comparing the top match with the others." }),
       el("div", { class: "bar-bg" }, el("div", { class: "bar-fg", style: `width:${Math.min(100, m.percent)}%` })),
-      el("div", { class: "muted small", text: `cosine similarity ${m.best.toFixed(3)} · ${m.n_clips} clips · ${fmtDur(m.total_sec)} of singing in the database` }),
+      el("div", { class: "muted small", text: `match score · cosine similarity ${m.best.toFixed(3)} (≈0.7+ same singer, <0.4 unrelated) · ${m.n_clips} clips · ${fmtDur(m.total_sec)} of singing in this voice` }),
       el("div", { class: "chips" }, chips, more)));
 }
 

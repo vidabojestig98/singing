@@ -1,12 +1,16 @@
 """HTTP API + web UI."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import math
+import os
 import shutil
+import socket
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -35,8 +39,29 @@ def load_calibration() -> tuple[float, float]:
 class CrawlStart(BaseModel):
     sources: list[str] = ["zenodo", "commons"]
     workers: int = 2
-    folders: list[str] = []
-    discover: bool = True
+    discover: bool = True       # local folders are deliberately CLI-only (`crawl --folder`), never settable over HTTP
+
+
+def is_public_http_url(u: str) -> bool:
+    """SSRF guard for user-supplied URLs: http(s) only, and every address the host resolves to must be public.
+    (Set SOUNDALIKE_ALLOW_PRIVATE_URLS=1 for a trusted single-user setup that needs LAN media.)"""
+    p = urlparse(u)
+    if p.scheme not in ("http", "https") or not p.hostname:
+        return False
+    if os.environ.get("SOUNDALIKE_ALLOW_PRIVATE_URLS") == "1":
+        return True
+    host = p.hostname.lower()
+    try:                                    # IP literal: judge it directly
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        pass
+    if host == "localhost" or host.endswith((".localhost", ".localdomain", ".local", ".internal", ".lan", ".home.arpa")) or "." not in host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, p.port or (443 if p.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return True    # not resolvable here (e.g. behind an egress proxy that resolves for us): nothing local to reach
+    return all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
 
 
 class UrlList(BaseModel):
@@ -95,6 +120,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
 
     @app.get("/api/voices")
     def api_voices(limit: int = 24, offset: int = 0, min_clips: int = 1):
+        limit, offset = max(1, min(limit, 200)), max(0, offset)
         c = db.conn()
         rows = c.execute(
             "SELECT id,label,n_clips,total_sec FROM voices WHERE n_clips>=? ORDER BY n_clips DESC, id LIMIT ? OFFSET ?",
@@ -112,6 +138,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
 
     @app.get("/api/voices/{vid}")
     def api_voice(vid: int, limit: int = 100, offset: int = 0):
+        limit, offset = max(1, min(limit, 500)), max(0, offset)
         rows = db.conn().execute(
             "SELECT clips.*, sources.title, sources.page_url, sources.author, sources.license, sources.license_url "
             "FROM clips JOIN sources ON sources.id=clips.source_id WHERE voice_id=? AND deleted=0 "
@@ -120,6 +147,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
 
     @app.get("/api/sources")
     def api_sources(status: str | None = None, limit: int = 50, offset: int = 0):
+        limit, offset = max(1, min(limit, 500)), max(0, offset)
         q = ("SELECT id,kind,ref,title,page_url,license,duration,status,error,n_segments,n_clips,n_voices,finished_at "
              "FROM sources")
         args: list = []
@@ -158,7 +186,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
         cr = get_crawler()
         if cr is not None and cr.running:
             return cr.status()
-        srcs = default_sources(folders=req.folders, zenodo="zenodo" in req.sources, commons="commons" in req.sources)
+        srcs = default_sources(zenodo="zenodo" in req.sources, commons="commons" in req.sources)
         app.state.crawler = Crawler(engine, srcs, workers=max(1, min(req.workers, 16)),
                                     work_dir=engine.db.root / "tmp", discover=req.discover)
         app.state.crawler.start()
@@ -174,18 +202,22 @@ def create_app(engine: Engine | None = None) -> FastAPI:
 
     @app.post("/api/crawl/urls")
     def crawl_urls(req: UrlList):
-        added = 0
-        for u in req.urls:
+        added, rejected = 0, []
+        for u in req.urls[:500]:
             u = u.strip()
-            if u.startswith(("http://", "https://")):
-                sid = db.add_source("url", f"url:{u}", url=u, title=u.rsplit("/", 1)[-1] or u, page_url=u)
-                added += 1 if sid else 0
+            if not is_public_http_url(u):
+                rejected.append(u)
+                continue
+            sid = db.add_source("url", f"url:{u}", url=u, title=u.rsplit("/", 1)[-1] or u, page_url=u)
+            added += 1 if sid else 0
         cr = get_crawler()
         if cr is None or not cr.running:
             srcs = default_sources(zenodo=False, commons=False)
             app.state.crawler = Crawler(engine, srcs, workers=2, work_dir=engine.db.root / "tmp", discover=False)
             app.state.crawler.start()
-        return {"added": added}
+        if rejected and not added:
+            raise HTTPException(422, "Only public http(s) URLs are accepted.")
+        return {"added": added, "rejected": len(rejected)}
 
     @app.post("/api/ingest")
     def api_ingest(file: UploadFile = File(...)):

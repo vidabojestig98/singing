@@ -20,6 +20,10 @@ CONTACT = os.environ.get("SOUNDALIKE_CONTACT", "set SOUNDALIKE_CONTACT=<url-or-e
 USER_AGENT = f"SoundAlikeSinger/0.1 (open-license singing crawler; {CONTACT}) python-requests"
 
 
+class SkipSource(Exception):
+    """This item cannot / should not be analysed (too large, no audio...). Not a failure: recorded as 'skipped'."""
+
+
 @dataclass
 class MediaItem:
     ref: str                       # stable unique id, e.g. "zenodo:123/file.mp4"
@@ -58,7 +62,8 @@ class RateLimiter:
 
 class Source:
     kind = "base"
-    max_download_bytes = 3 * 1024**3        # a safety valve per file, not a limit on the database
+    # a per-file safety valve (disk protection), NOT a limit on the database; raise it with SOUNDALIKE_MAX_DOWNLOAD_GB
+    max_download_bytes = int(float(os.environ.get("SOUNDALIKE_MAX_DOWNLOAD_GB", "3")) * 1024**3)
 
     def __init__(self):
         self.http = requests.Session()
@@ -89,13 +94,14 @@ class Source:
                     r.raise_for_status()
                     total = int(r.headers.get("Content-Length") or 0)
                     if total and total > self.max_download_bytes:
-                        raise RuntimeError(f"file too large ({total / 1e9:.1f} GB)")
+                        raise SkipSource(f"file is {total / 1e9:.1f} GB, above the {self.max_download_bytes / 1e9:.0f} GB per-file "
+                                         "download cap (set SOUNDALIKE_MAX_DOWNLOAD_GB to raise it)")
                     n = 0
                     with open(dest, "wb") as f:
                         for chunk in r.iter_content(1 << 20):
                             n += len(chunk)
                             if n > self.max_download_bytes:
-                                raise RuntimeError("file too large")
+                                raise SkipSource("file exceeds the per-file download cap")
                             f.write(chunk)
                     return
             except (requests.ConnectionError, requests.Timeout) as e:

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import DATA, needs_data
+from conftest import DATA, needs_data, vocalset
 
 FILES: dict[str, Path] = {}
 
@@ -66,9 +66,9 @@ class Mock(BaseHTTPRequestHandler):
 @pytest.fixture(scope="module")
 def mock():
     FILES.clear()
-    voc = sorted(glob.glob(str(DATA / "vocalset" / "*" / "excerpts" / "*" / "*.wav")))
     spe = sorted(glob.glob(str(DATA / "speech_big" / "clean_*.flac")))
-    FILES["sing_a.wav"] = Path(voc[0]); FILES["sing_b.wav"] = Path(voc[40]); FILES["sing_c.wav"] = Path(voc[80])
+    FILES["sing_a.wav"] = Path(vocalset("female1", "caro")); FILES["sing_b.wav"] = Path(vocalset("male2", "dona"))
+    FILES["sing_c.wav"] = Path(vocalset("female5", "row", "vibrato"))
     FILES["talk_a.wav"] = Path(spe[0])
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Mock)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

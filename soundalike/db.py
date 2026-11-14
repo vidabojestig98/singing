@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS voices (
   label TEXT,
   n_clips INTEGER NOT NULL DEFAULT 0,
   total_sec REAL NOT NULL DEFAULT 0,
-  emb_sum BLOB,                    -- sum of clip embeddings (float32); centroid = normalise(sum)
+  emb_sum BLOB,                    -- running sum of clip embeddings (informational; not used for assignment)
   created_at REAL
 );
 CREATE TABLE IF NOT EXISTS clips (
@@ -86,8 +86,6 @@ class Database:
         if not self.emb_path.exists():
             self.emb_path.touch()
         self._emb_fd = os.open(self.emb_path, os.O_RDWR)
-        self._voice_cache: tuple[np.ndarray, np.ndarray] | None = None   # (ids, normalised centroids)
-        self._voice_dirty = True
 
     # ---- plumbing ----------------------------------------------------------------------------
     def conn(self) -> sqlite3.Connection:
@@ -193,25 +191,26 @@ class Database:
         return np.memmap(self.emb_path, dtype=np.float32, mode="r", shape=(n, self.dim))
 
     # ---- voices ------------------------------------------------------------------------------
-    def _load_voices(self) -> tuple[np.ndarray, np.ndarray]:
-        if self._voice_cache is None or self._voice_dirty:
-            rows = self.conn().execute("SELECT id, emb_sum FROM voices WHERE n_clips>0 ORDER BY id").fetchall()
-            ids = np.array([r["id"] for r in rows], dtype=np.int64)
-            if rows:
-                M = np.stack([np.frombuffer(r["emb_sum"], np.float32) for r in rows])
-                M = M / np.maximum(np.linalg.norm(M, axis=1, keepdims=True), 1e-9)
-            else:
-                M = np.zeros((0, self.dim), np.float32)
-            self._voice_cache, self._voice_dirty = (ids, M), False
-        return self._voice_cache
-
-    def nearest_voice(self, emb: np.ndarray) -> tuple[int | None, float]:
-        ids, M = self._load_voices()
-        if len(ids) == 0:
+    def nearest_voice(self, emb: np.ndarray, k: int = 60) -> tuple[int | None, float]:
+        """Best existing voice for an embedding: exact search over clips, then each voice is scored by the
+        mean similarity of its two closest clips. (A running centroid drifts towards "everyone" as a voice
+        grows and snowballs merges of different singers; clip-level evidence does not.)"""
+        hits = self.search_clips(emb, k=k)
+        if not hits:
             return None, -1.0
-        sims = M @ emb
-        j = int(sims.argmax())
-        return int(ids[j]), float(sims[j])
+        ids = [h[0] for h in hits]
+        voice_of = {r["id"]: r["voice_id"] for r in self.conn().execute(
+            f"SELECT id, voice_id FROM clips WHERE deleted=0 AND id IN ({','.join('?' * len(ids))})", ids)}
+        by_voice: dict[int, list[float]] = {}
+        for cid, sim in hits:
+            v = voice_of.get(cid)
+            if v is not None:
+                by_voice.setdefault(v, []).append(sim)
+        if not by_voice:
+            return None, -1.0
+        scored = {v: float(np.mean(sorted(sims, reverse=True)[:2])) for v, sims in by_voice.items()}
+        v = max(scored, key=scored.get)
+        return v, scored[v]
 
     def add_clip(self, source_id: int, voice_id: int | None, start: float, end: float, emb: np.ndarray,
                  score: float, kind: str, new_voice_threshold: float | None = None) -> tuple[int, int]:
@@ -241,7 +240,6 @@ class Database:
             c.execute("UPDATE voices SET emb_sum=?, n_clips=n_clips+1, total_sec=total_sec+? WHERE id=?",
                       (s.astype(np.float32).tobytes(), end - start, voice_id))
             c.commit()
-            self._voice_dirty = True
             return cid, voice_id
 
     def set_clip_path(self, clip_id: int, rel_path: str, kind: str | None = None) -> None:
@@ -263,7 +261,6 @@ class Database:
             c.execute("UPDATE voices SET n_clips=n_clips-1, total_sec=total_sec-? WHERE id=?",
                       (r["end"] - r["start"], r["voice_id"]))
             c.commit()
-            self._voice_dirty = True
         f = self.clip_file(clip_id)
         if f.exists():
             f.unlink()
@@ -324,15 +321,16 @@ class Database:
                 "clips": top,
             })
         out.sort(key=lambda d: -d["score"])
+        out = out[:top_voices]
         vrows = {r["id"]: r for r in c.execute(
             f"SELECT id,label,n_clips,total_sec FROM voices WHERE id IN ({','.join('?' * len(out))})",
-            [o["voice_id"] for o in out[:top_voices]]) } if out else {}
-        for o in out[:top_voices]:
+            [o["voice_id"] for o in out])} if out else {}
+        for o in out:
             v = vrows.get(o["voice_id"])
             o["label"] = v["label"] if v else f"Voice {o['voice_id']}"
             o["n_clips"] = v["n_clips"] if v else 0
             o["total_sec"] = v["total_sec"] if v else 0
-        return out[:top_voices]
+        return out
 
     # ---- stats -------------------------------------------------------------------------------
     def stats(self) -> dict:

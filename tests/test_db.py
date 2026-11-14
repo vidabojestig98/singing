@@ -65,3 +65,17 @@ def test_search_scans_in_blocks_and_keeps_scaling(tmp_path):
     dt = time.time() - t0
     assert hits[0][0] == 123_457 and abs(hits[0][1] - 1.0) < 1e-4
     assert dt < 3.0
+
+
+def test_match_with_more_voices_than_top_voices(tmp_path):
+    """Regression: the voice lookup used the wrong number of SQL placeholders when voices > top_voices."""
+    rng = np.random.default_rng(3)
+    db = Database(tmp_path, 32)
+    sid = db.add_source("url", "url:a", url="http://x/a.mp4", title="A")
+    base = [unit(rng, 32) for _ in range(12)]
+    for i, v in enumerate(base):
+        db.add_clip(sid, None, 0, 5, v, 0.9, "video", new_voice_threshold=0.99)
+    q = base[7] + 0.05 * unit(rng, 32)
+    res = db.match(q, top_voices=5)
+    assert len(res) == 5 and res[0]["label"] and res[0]["n_clips"] == 1
+    assert db.stats()["voices"] == 12
